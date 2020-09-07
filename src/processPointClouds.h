@@ -18,100 +18,8 @@
 #include <ctime>
 #include <chrono>
 #include "render/box.h"
-
-// template<typename PointT>
-struct Node
-{
-	pcl::PointXYZI point;
-	int id;
-	Node* left;
-	Node* right;
-
-	Node(pcl::PointXYZI arr, int setId)
-	:	point(arr), id(setId), left(NULL), right(NULL)
-	{}
-};
-
-//template<typename PointT>
-struct KdTree
-{
-	Node* root;
-
-	KdTree()
-	: root(NULL)
-	{}
-
-	void insertHelper(Node **node, int depth, pcl::PointXYZI point, int id)
-	{
-		uint cd = depth % 2;
-		if(*node == NULL)
-		{
-			*node = new Node(point,id);
-		}
-		else if(cd == 0)
-		{
-			if(point.x < ((*node)->point.x))
-				insertHelper(&((*node)->left), depth+1, point, id);
-			else
-				insertHelper(&((*node)->right), depth+1, point, id);
-		}
-		else 
-		{
-			if(point.y < ((*node)->point.y))
-				insertHelper(&((*node)->left), depth+1, point, id);
-			else
-				insertHelper(&((*node)->right), depth+1, point, id);
-		}
-		
-		
-
-	}
-
-	void insert(pcl::PointXYZI point, int id)
-	{
-		// TODO: Fill in this function to insert a new point into the tree
-		// the function should create a new node and place correctly with in the root 
-		insertHelper(&root,0,point,id);
-
-	}
-
-	void searchHelper(std::vector<int> &ids, Node *node, int depth, pcl::PointXYZI target, float distanceTol)
-	{
-		if(node!=NULL)
-		{
-			uint cd = depth%2;
-			if((fabs(node->point.x-target.x)<=distanceTol) && (fabs(node->point.y-target.y)<=distanceTol))
-			{
-				float d=sqrt((node->point.x-target.x)*(node->point.x-target.x)+(node->point.y-target.y)*(node->point.y-target.y));
-				if(d<=distanceTol)
-					ids.push_back(node->id);
-			}
-
-			if(cd == 0){
-				if((target.x+distanceTol) > (node->point.x))
-					searchHelper(ids, (node->right),depth+1,target,distanceTol);
-				if((target.x-distanceTol) < (node->point.x))
-					searchHelper(ids, (node->left),depth+1,target,distanceTol);
-			}
-			else{
-				if((target.y+distanceTol) > (node->point.y))
-					searchHelper(ids, (node->right),depth+1,target,distanceTol);
-				if((target.y-distanceTol) < (node->point.y))
-					searchHelper(ids, (node->left),depth+1,target,distanceTol);
-			}
-		}
-	}
-
-	// return a list of point ids in the tree that are within distance of target
-	std::vector<int> search(pcl::PointXYZI target, float distanceTol)
-	{
-		std::vector<int> ids;
-		searchHelper(ids, root,0,target,distanceTol);
-		return ids;
-	}
-	
-
-};
+#include "kdtree.h"
+//#include "cluster.h"
 
 
 
@@ -137,9 +45,6 @@ public:
 
     std::vector<typename pcl::PointCloud<PointT>::Ptr> Clustering(typename pcl::PointCloud<PointT>::Ptr cloud, float clusterTolerance, int minSize, int maxSize);
 
-    std::vector<typename pcl::PointCloud<PointT>::Ptr> euclideanCluster(typename pcl::PointCloud<PointT>::Ptr cloud, float distanceTol, int minSize, int maxSize);
-    void proximity(int i, typename pcl::PointCloud<PointT>::Ptr cloud,std::vector<int>& cluster, std::vector<bool>& processed, KdTree* tree, float distanceTol);
-
     Box BoundingBox(typename pcl::PointCloud<PointT>::Ptr cluster);
 
     void savePcd(typename pcl::PointCloud<PointT>::Ptr cloud, std::string file);
@@ -149,4 +54,41 @@ public:
     std::vector<boost::filesystem::path> streamPcd(std::string dataPath);
   
 };
+
+inline void clusterHelper(int index, const std::vector<std::vector<float>>& points, std::vector<bool>& processed, std::vector<int>& cluster, KdTree* tree, float distanceTol)
+{
+ 	processed[index] = true;
+	cluster.push_back(index);
+
+	std::vector<int> neighbors = tree->search(points[index], distanceTol);
+
+	for(int ptIndex : neighbors)
+	{
+		if(!processed[ptIndex])
+		{
+			clusterHelper(ptIndex, points, processed, cluster, tree, distanceTol); 
+		}
+	}
+}
+
+// Implementation tuned by help of Aaron Brown's solution in the Lidar course
+
+inline std::vector<std::vector<int>> euclideanCluster(const std::vector<std::vector<float>>& points, KdTree* tree, float distanceTol)
+{
+	std::vector<std::vector<int>> clusters;
+	std::vector<bool> processed(points.size(), false);
+
+	for(int i = 0; i < points.size(); i++)
+	{
+		if(!processed[i])
+		{
+			std::vector<int> cluster;
+			clusterHelper(i, points, processed, cluster, tree, distanceTol);
+			clusters.push_back(cluster);
+		}
+	}
+ 
+	return clusters;
+}
+
 #endif /* PROCESSPOINTCLOUDS_H_ */
